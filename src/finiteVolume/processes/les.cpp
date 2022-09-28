@@ -174,7 +174,7 @@ PetscErrorCode ablate::finiteVolume::processes::LES::LesEvFlux(PetscInt dim, con
             PetscReal lesEvFlux_1;
 
             for (PetscInt c = 0; c < dim; ++c) {
-                lesEvFlux_0 += -fg->normal[d] * sqrt(areaMag) * density * muT * tau[d * dim + c] * tau[d * dim + c];
+                lesEvFlux_0 += -.5 * fg->normal[d] * sqrt(areaMag) * density * muT * tau[d * dim + c] * tau[d * dim + c];
             }
 
             //  LESevFlux( rho Di dEVi/dx +git check rho Di dEVi/dy + rho Di dEVi//dz) . n A +  LESevFlux(-rho ce EV^3/2 ) . n A
@@ -240,7 +240,7 @@ PetscErrorCode ablate::finiteVolume::processes::LES::LesViscosity(PetscInt dim, 
     // get the current density from euler
     const PetscReal density = densityField[CompressibleFlowFields::RHO];
 
-    muT = c_k * density * sqrt(abs(4 * areaMag * turbulence));
+    muT = c_k * density * sqrt(abs( areaMag * turbulence));
 
     PetscFunctionReturn(0);
 }
