@@ -9,6 +9,15 @@
 namespace ablate::finiteVolume::processes {
 
 class LES : public FlowProcess {
+   public:
+    /* store turbulent diffusion  data */
+    struct DiffusionData {
+        NavierStokesTransport* computeTau;
+        PetscInt numberSpecies;
+        PetscInt numberEV;
+        PetscInt tke_ev;
+    };
+
    private:
     const std::string tke;
 
@@ -19,13 +28,6 @@ class LES : public FlowProcess {
     inline const static PetscReal scT = 1.00;
     inline const static PetscReal prT = 1.00;
 
-    /* store turbulent diffusion  data */
-    struct DiffusionData {
-        NavierStokesTransport* computeTau;
-        PetscInt numberSpecies;
-        PetscInt numberEV;
-        PetscInt tke_ev;
-    };
     DiffusionData diffusionData;
     PetscInt numberSpecies;
 
@@ -40,7 +42,7 @@ class LES : public FlowProcess {
 
    public:
     /**
-     * This computes the momentum transfer for SGS model for rhoU
+     * This computes the momentum source for SGS model for rhoU
      * f = "euler"
      * u = {"euler", "densityYi"}
      * a = {"yi"}
@@ -50,7 +52,7 @@ class LES : public FlowProcess {
     static PetscErrorCode LesMomentumFlux(PetscInt dim, const PetscFVFaceGeom* fg, const PetscInt uOff[], const PetscInt uOff_x[], const PetscScalar field[], const PetscScalar grad[],
                                           const PetscInt aOff[], const PetscInt aOff_x[], const PetscScalar aux[], const PetscScalar gradAux[], PetscScalar flux[], void* ctx);
     /**
-     * This computes the Energy transfer for SGS model for rhoE
+     * This computes the energy source for SGS model for rhoE
      * f = "euler"
      * u = {"euler", "densityYi"}
      * a = {"yi"}
@@ -59,6 +61,18 @@ class LES : public FlowProcess {
      */
     static PetscErrorCode LesEnergyFlux(PetscInt dim, const PetscFVFaceGeom* fg, const PetscInt uOff[], const PetscInt uOff_x[], const PetscScalar field[], const PetscScalar grad[],
                                         const PetscInt aOff[], const PetscInt aOff_x[], const PetscScalar aux[], const PetscScalar gradAux[], PetscScalar flux[], void* ctx);
+
+    /**
+     * This computes the EV transfer for SGS model for densityEV
+     * f = "euler"
+     * u = {"euler", "densityEV"}
+     * a = {"ev"}
+     * ctx = lesDiffusionData
+     * return
+     */
+    static PetscErrorCode LesEvFlux(PetscInt dim, const PetscFVFaceGeom* fg, const PetscInt uOff[], const PetscInt uOff_x[], const PetscScalar field[], const PetscScalar grad[], const PetscInt aOff[],
+                                    const PetscInt aOff_x[], const PetscScalar aux[], const PetscScalar gradAux[], PetscScalar flux[], void* ctx);
+
     /**
      * This computes the species transfer for SGS model for density-YI
      * f = "euler"
@@ -67,17 +81,8 @@ class LES : public FlowProcess {
      * ctx = lesDiffusionData
      * @return
      */
-
-    static PetscErrorCode LesEvFlux(PetscInt dim, const PetscFVFaceGeom* fg, const PetscInt uOff[], const PetscInt uOff_x[], const PetscScalar field[], const PetscScalar grad[], const PetscInt aOff[],
-                                    const PetscInt aOff_x[], const PetscScalar aux[], const PetscScalar gradAux[], PetscScalar flux[], void* ctx);
-
-    /**
-     * static support function to compute the turbulent stress tensor
-     * @param dim
-     * @param mut
-     * @param tau
-     * @return
-     */
+    static PetscErrorCode LesSpeciesFlux(PetscInt dim, const PetscFVFaceGeom* fg, const PetscInt uOff[], const PetscInt uOff_x[], const PetscScalar field[], const PetscScalar grad[],
+                                         const PetscInt aOff[], const PetscInt aOff_x[], const PetscScalar aux[], const PetscScalar gradAux[], PetscScalar flux[], void* ctx);
 
     /**
      * static support function to compute the turbulent viscosity
@@ -87,16 +92,6 @@ class LES : public FlowProcess {
      * @param uOff
      * @param mut
      * @return
-     */
-    static PetscErrorCode LesSpeciesFlux(PetscInt dim, const PetscFVFaceGeom* fg, const PetscInt uOff[], const PetscInt uOff_x[], const PetscScalar field[], const PetscScalar grad[],
-                                         const PetscInt aOff[], const PetscInt aOff_x[], const PetscScalar aux[], const PetscScalar gradAux[], PetscScalar flux[], void* ctx);
-    /**
-     * This computes the EV transfer for SGS model for densityEV
-     * f = "euler"
-     * u = {"euler", "densityEV"}
-     * a = {"ev"}
-     * ctx = lesDiffusionData
-     * return
      */
     static PetscErrorCode LesViscosity(PetscInt dim, const PetscFVFaceGeom* fg, const PetscScalar* densityField, const PetscReal turbulence, PetscReal& mut);
 };
