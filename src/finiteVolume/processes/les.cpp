@@ -65,8 +65,7 @@ PetscErrorCode ablate::finiteVolume::processes::LES::LesMomentumFlux(PetscInt di
     for (PetscInt d = 0; d < dim; d++) {
         flux[CompressibleFlowFields::RHOU + d] = 0.0;
     }
-    // Compute the LES stress tensor tau
-    PetscReal tau[9];  // Maximum size without symmetry
+    PetscReal tau[9];
     PetscReal muT;
     PetscReal turbulence;
     auto flowParameters = (DiffusionData*)ctx;
@@ -76,10 +75,10 @@ PetscErrorCode ablate::finiteVolume::processes::LES::LesMomentumFlux(PetscInt di
 
     ierr = LesViscosity(dim, fg, field + uOff[euler], turbulence, muT);
     CHKERRQ(ierr);
+    // Compute the LES stress tensor tau
     ierr = flowParameters->computeTau->CompressibleFlowComputeStressTensor(dim, muT, gradAux + aOff_x[VEL], tau);
     CHKERRQ(ierr);
 
-    // for each velocity component
     for (PetscInt c = 0; c < dim; ++c) {
         PetscReal lesViscousFlux = 0.0;
 
@@ -109,13 +108,13 @@ PetscErrorCode ablate::finiteVolume::processes::LES::LesEnergyFlux(PetscInt dim,
     // set the fluxes to zero
     flux[CompressibleFlowFields::RHOE] = 0.0;
 
-    // Compute the les stress tensor LESTau
-    PetscReal tau[9];  // Maximum size without symmetry
+    PetscReal tau[9];
     PetscReal muT;
     auto flowParameters = (DiffusionData*)ctx;
 
     PetscReal turbulence = aux[aOff[EV_FIELD] + flowParameters->tke_ev];
 
+    // Compute the les stress tensor LESTau
     ierr = LesViscosity(dim, fg, field + uOff[euler], turbulence, muT);
     CHKERRQ(ierr);
     ierr = flowParameters->computeTau->CompressibleFlowComputeStressTensor(dim, muT, gradAux + aOff_x[VEL], tau);
@@ -133,7 +132,6 @@ PetscErrorCode ablate::finiteVolume::processes::LES::LesEnergyFlux(PetscInt dim,
 
         // Multiply by the area normal
         lesHeatFlux *= -fg->normal[d];
-
         flux[CompressibleFlowFields::RHOE] += lesHeatFlux;
     }
 
@@ -153,8 +151,7 @@ PetscErrorCode ablate::finiteVolume::processes::LES::LesEvFlux(PetscInt dim, con
     // get the current density from euler
     const PetscReal density = field[uOff[euler] + CompressibleFlowFields::RHO];
 
-    // Compute the LES stress tensor tau
-    PetscReal tau[9];  // Maximum size without symmetry
+    PetscReal tau[9];
     PetscReal muT;
 
     PetscReal turbulence = aux[aOff[EV_FIELD] + flowParameters->tke_ev];
@@ -162,37 +159,35 @@ PetscErrorCode ablate::finiteVolume::processes::LES::LesEvFlux(PetscInt dim, con
     ierr = LesViscosity(dim, fg, field + uOff[euler], turbulence, muT);
     CHKERRQ(ierr);
 
+    // Compute the LES stress tensor tau
     ierr = flowParameters->computeTau->CompressibleFlowComputeStressTensor(dim, 1, gradAux + aOff_x[VEL], tau);
     CHKERRQ(ierr);
     const PetscReal areaMag = utilities::MathUtilities::MagVector(dim, fg->normal);
-    // energy equation
 
     for (PetscInt ev = 0; ev < flowParameters->numberEV; ++ev) {
         flux[ev] = 0;
         for (PetscInt d = 0; d < dim; ++d) {
-            PetscReal lesEvFlux_0 = 0;
+            PetscReal lesEvFlux_0;
             PetscReal lesEvFlux_1;
+            PetscReal lesEvFlux;
 
-            for (PetscInt c = 0; c < dim; ++c) {
-                lesEvFlux_0 += -.5 * fg->normal[d] * sqrt(areaMag) * density * muT * tau[d * dim + c] * tau[d * dim + c];
-            }
-
-            //  LESevFlux( rho Di dEVi/dx +git check rho Di dEVi/dy + rho Di dEVi//dz) . n A +  LESevFlux(-rho ce EV^3/2 ) . n A
+            //  add turbulent diff other ev
             if (!(ev == flowParameters->tke_ev)) {
                 const int offset = aOff_x[EV_FIELD] + (ev * dim) + d;
-                lesEvFlux_1 = muT * gradAux[offset] / scT;
+                lesEvFlux = -fg->normal[d] * muT * gradAux[offset] / scT;
             }
-
+            //  calculate turbulent diff other tke
             if (ev == flowParameters->tke_ev) {
-                const int offset_t = aOff_x[EV_FIELD] + (ev * dim) + d;
-                const int offset_tk = aOff[EV_FIELD] + (ev * dim);
+                for (PetscInt c = 0; c < dim; ++c) {
+                    lesEvFlux_0 += -0.5 * fg->normal[d] * sqrt(areaMag) * density * muT * tau[d * dim + c] * tau[d * dim + c];
+                }
+                const int offset = aOff_x[EV_FIELD] + (ev * dim) + d;
 
-                // only counting tke here
-                lesEvFlux_1 = density * muT * gradAux[offset_t] - c_e * density * aux[offset_tk] * sqrt(abs(aux[offset_tk]));
+                lesEvFlux_1 = density * muT * gradAux[offset] - c_e * density * turbulence * sqrt(abs(turbulence));
+
+                lesEvFlux_1 *= -fg->normal[d];
+                lesEvFlux = lesEvFlux_0 + lesEvFlux_1;
             }
-
-            lesEvFlux_1 *= -fg->normal[d];
-            PetscReal lesEvFlux = lesEvFlux_0 + lesEvFlux_1;
             flux[ev] += lesEvFlux;
         }
     }
@@ -219,12 +214,13 @@ PetscErrorCode ablate::finiteVolume::processes::LES::LesSpeciesFlux(PetscInt dim
 
     // species equations
     for (PetscInt sp = 0; sp < flowParameters->numberSpecies; ++sp) {
+        PetscReal lesSpeciesFlux;
         flux[sp] = 0;
 
         for (PetscInt d = 0; d < dim; ++d) {
             // LESspeciesFlux(-rho mut dYi/dx - mut dYi/dy - rho mut dYi//dz) . n A
             const int offset = aOff_x[yi] + (sp * dim) + d;
-            PetscReal lesSpeciesFlux = -fg->normal[d] * muT * gradAux[offset] / scT;
+            lesSpeciesFlux = -fg->normal[d] * muT * gradAux[offset] / scT;
             flux[sp] += lesSpeciesFlux;
         }
     }
@@ -232,7 +228,7 @@ PetscErrorCode ablate::finiteVolume::processes::LES::LesSpeciesFlux(PetscInt dim
     PetscFunctionReturn(0);
 }
 
-PetscErrorCode ablate::finiteVolume::processes::LES::LesViscosity(PetscInt dim, const PetscFVFaceGeom* fg, const PetscScalar* densityField, const PetscReal turbulence, PetscReal& muT) {
+PetscErrorCode ablate::finiteVolume::processes::LES::LesViscosity(PetscInt dim, const PetscFVFaceGeom* fg, consat PetscScalar* densityField, const PetscReal turbulence, PetscReal& muT) {
     PetscFunctionBeginUser;
 
     const PetscReal areaMag = utilities::MathUtilities::MagVector(dim, fg->normal);
@@ -240,7 +236,8 @@ PetscErrorCode ablate::finiteVolume::processes::LES::LesViscosity(PetscInt dim, 
     // get the current density from euler
     const PetscReal density = densityField[CompressibleFlowFields::RHO];
 
-    muT = c_k * density * sqrt(abs( areaMag * turbulence));
+    // Compute the LES turbulent viscosity
+    muT = c_k * density * sqrt(abs(areaMag * turbulence));
 
     PetscFunctionReturn(0);
 }
